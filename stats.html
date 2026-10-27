@@ -40,13 +40,13 @@ td.n,th.n{text-align:right}
 <div class="wrap">
   <div><h1>Почём Нячанг · статистика</h1><p class="sub" id="upd">Загружаю…</p></div>
   <div class="tiles">
-    <div class="tile"><b id="u30">—</b><span>пользователей за 30 дней</span></div>
-    <div class="tile"><b id="u7">—</b><span>пользователей за 7 дней</span></div>
+    <div class="tile"><b id="u30">—</b><span>пользователей Telegram за 30 дней</span></div>
+    <div class="tile"><b id="u7">—</b><span>пользователей Telegram за 7 дней</span></div>
     <div class="tile"><b id="c30">—</b><span>проверок цен за 30 дней</span></div>
-    <div class="tile"><b id="uall">—</b><span>пользователей всего</span></div>
+    <div class="tile"><b id="w30">—</b><span>посетителей сайта за 30 дней (примерно)</span></div>
   </div>
-  <div class="card"><h2>Пользователи по дням (30 дней)</h2><div class="bars" id="bars"></div><div class="days" id="days"></div></div>
-  <div class="card"><h2>По дням</h2><table><thead><tr><th>День</th><th class="n">Люди</th><th class="n">Открытия</th><th class="n">Проверки</th><th class="n">Фото</th></tr></thead><tbody id="daily"></tbody></table></div>
+  <div class="card"><h2>Пользователи Telegram по дням (30 дней)</h2><div class="bars" id="bars"></div><div class="days" id="days"></div></div>
+  <div class="card"><h2>По дням</h2><table><thead><tr><th>День</th><th class="n">Telegram</th><th class="n">Сайт</th><th class="n">Открытия</th><th class="n">Проверки</th><th class="n">Фото</th></tr></thead><tbody id="daily"></tbody></table></div>
   <div class="card"><h2>Что проверяют чаще всего (30 дней)</h2><table><thead><tr><th>Товар</th><th class="n">Проверок</th><th class="n">Людей</th><th class="n">«Цена для туриста»</th></tr></thead><tbody id="items"></tbody></table></div>
 </div>
 <script>
@@ -63,17 +63,17 @@ td.n,th.n{text-align:right}
   ]).then(function(res){
     var t=res[0].data||{},d=(res[1].data||[]),it=(res[2].data||[]);
     var names={};res[3].split('\n').slice(1).forEach(function(l){var m=l.split(',');if(m[0])names[m[0]]=(m[2]||'')+' '+(m[3]||'').replace(/"/g,'');});
-    document.getElementById('u30').textContent=fmt.format(t.users_30d||0);
-    document.getElementById('u7').textContent=fmt.format(t.users_7d||0);
+    document.getElementById('u30').textContent=fmt.format(t.tg_users_30d||0);
+    document.getElementById('u7').textContent=fmt.format(t.tg_users_7d||0);
     document.getElementById('c30').textContent=fmt.format(t.checks_30d||0);
-    document.getElementById('uall').textContent=fmt.format(t.users_all||0);
-    var max=Math.max.apply(null,d.map(function(x){return x.users;}).concat([1]));
+    document.getElementById('w30').textContent=fmt.format(t.web_visitors_30d||0);
+    var max=Math.max.apply(null,d.map(function(x){return x.tg_users||0;}).concat([1]));
     var asc=d.slice().reverse(),bars=document.getElementById('bars'),days=document.getElementById('days');
-    asc.forEach(function(x){var b=document.createElement('div');b.style.height=(x.users/max*100)+'%';b.title=x.day+': '+x.users;bars.appendChild(b);
+    asc.forEach(function(x){var b=document.createElement('div');b.style.height=((x.tg_users||0)/max*100)+'%';b.title=x.day+': '+(x.tg_users||0);bars.appendChild(b);
       var s=document.createElement('span');s.textContent=x.day.slice(8,10);days.appendChild(s);});
-    var tb=document.getElementById('daily');d.forEach(function(x){var r=document.createElement('tr');r.appendChild(td(x.day));r.appendChild(td(fmt.format(x.users),1));r.appendChild(td(fmt.format(x.opens),1));r.appendChild(td(fmt.format(x.checks),1));r.appendChild(td(fmt.format(x.photos),1));tb.appendChild(r);});
+    var tb=document.getElementById('daily');d.forEach(function(x){var r=document.createElement('tr');r.appendChild(td(x.day));r.appendChild(td(fmt.format(x.tg_users||0),1));r.appendChild(td(fmt.format(x.web_visitors||0),1));r.appendChild(td(fmt.format(x.opens),1));r.appendChild(td(fmt.format(x.checks),1));r.appendChild(td(fmt.format(x.photos),1));tb.appendChild(r);});
     var ti=document.getElementById('items');it.forEach(function(x){var r=document.createElement('tr');r.appendChild(td(names[x.item]||x.item));r.appendChild(td(fmt.format(x.checks),1));r.appendChild(td(fmt.format(x.users),1));r.appendChild(td(fmt.format(x.tourist_verdicts),1));ti.appendChild(r);});
-    document.getElementById('upd').textContent='Обновлено: '+new Date().toLocaleString('ru-RU')+' · данные из приложения в реальном времени';
+    document.getElementById('upd').textContent='Обновлено: '+new Date().toLocaleString('ru-RU')+' · данные в реальном времени · Telegram — точные люди, сайт — примерно · тестовые аккаунты не учитываются';
     if(res[0].error||res[1].error)document.getElementById('upd').innerHTML='<span class="err">Ошибка чтения статистики. Проверь, что запустил setup.sql.</span>';
   });
 })();
