@@ -21,7 +21,7 @@ const SB_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SB_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 
 type Tier = [number, number] | null;
-type Item = { id: string; cat: string; emoji: string; name: string; vi: string; s: Tier; c: Tier; t: Tier; tip: string };
+type Item = { id: string; cat: string; emoji: string; name: string; vi: string; s: Tier; c: Tier; t: Tier; tip: string; alias: string };
 
 // ---------- цены ----------
 let cache: { at: number; items: Item[] } = { at: 0, items: [] };
@@ -59,7 +59,7 @@ async function items(): Promise<Item[]> {
   const r = await fetch(ITEMS_URL + "?v=" + Date.now());
   const list = parseCSV(await r.text()).map((o) => ({
     id: o.id, cat: o.cat, emoji: o.emoji, name: o.name, vi: o.vi,
-    s: rng(o.s_min, o.s_max), c: rng(o.c_min, o.c_max), t: rng(o.t_min, o.t_max), tip: o.tip,
+    s: rng(o.s_min, o.s_max), c: rng(o.c_min, o.c_max), t: rng(o.t_min, o.t_max), tip: o.tip, alias: o.alias ?? "",
   })).filter((x) => x.s || x.c || x.t);
   cache = { at: Date.now(), items: list };
   return list;
@@ -104,7 +104,30 @@ function ladder(it: Item): string {
     return null;
   }).filter(Boolean).join("\n");
 }
-function verdict(it: Item, price: number): { text: string; v: string } {
+function verdictAt(it: Item, price: number, p: P): { text: string; v: string } {
+  const n = names(it), c = ceil(it, p);
+  let head: string, v: string, say = "";
+  if (price <= c.v) { v = "ok"; head = `🟢 <b>Норм цена</b> — ${n[p].where} обычно до ${fmt(c.v)}${c.est ? " (оценка)" : ""}.`; }
+  else if (price <= c.v * 1.5) { v = "warn"; head = `🟠 <b>Дороговато.</b> ${n[p].where[0].toUpperCase() + n[p].where.slice(1)} обычно до ${fmt(c.v)} — можно поторговаться.`; say = "Bớt được không? — Можно дешевле?"; }
+  else { v = "tourist"; head = `🔴 <b>Цена для туриста.</b> Переплата в ${(price / c.v).toFixed(1).replace(".", ",")} раза — ${n[p].where} обычно до ${fmt(c.v)}.`; say = "Đắt quá! (дат куá) — Слишком дорого!"; }
+  let out = `${it.emoji} <b>${esc(it.name)}</b> · ${esc(it.vi)}\nПросят: <b>${fmt(price)}</b> · ${n[p].label}\n\n${head}\n\n<b>Лестница цен</b>\n${ladder(it)}`;
+  if (it.tip) out += `\n\n💡 ${esc(it.tip)}`;
+  if (say) out += `\n\n🗣 Скажи продавцу: <b>${say}</b>`;
+  return { text: out, v };
+}
+function placeOf(text: string): P | null {
+  const t = text.toLowerCase();
+  if (/набережн|отел|пляж|тран фу|чан фу|tran phu|туристич|ресторан|агентств/.test(t)) return "t";
+  if (/улиц|рынк|рынок|тележк|лавк|уличн|с рук|кассе|касса|напрямую/.test(t)) return "s";
+  if (/кафе|магазин|супермаркет|кофейн|салон|доставк|граб|grab/.test(t)) return "c";
+  return null;
+}
+function verdict(it: Item, price: number, place: P | null = null): { text: string; v: string } {
+  if (place) {
+    // для экскурсий «на кассе/напрямую» — это ступень c
+    if (it.cat === "Экскурсии" && place === "s") place = "c";
+    return verdictAt(it, price, place);
+  }
   const n = names(it);
   // ступени: реальные данные + оценка для верхней, если её нет
   const steps: { p: P; v: number }[] = (["s", "c", "t"] as P[])
@@ -201,10 +224,11 @@ function parseText(text: string, list: Item[]) {
     if (m[2] || v < 1000) v *= 1000;
     price = Math.round(v);
   }
-  const words = low.replace(/[\d.,]+|\b(k|к|тыс|тысяч|донг\S*|vnd)\b/g, " ").split(/[^\p{L}]+/u).filter((w) => w.length >= 2);
+  const STOP = new Set(["на","в","во","за","с","со","у","и","а","по","до","от","просят","просит","стоит","сколько","цена","улице","улица","рынке","рынок","кафе","магазине","магазин","набережной","отеле","пляже","это","мне","нам","тыс","тысяч","k","к","vnd","донгов","донг"]);
+  const words = low.replace(/[\d.,]+/g, " ").split(/[^\p{L}]+/u).filter((w) => w.length >= 2 && !STOP.has(w));
   let best: Item | null = null, score = 0;
   for (const it of list) {
-    const hay = (it.name + " " + it.vi).toLowerCase();
+    const hay = (it.name + " " + it.vi + " " + (it.alias || "")).toLowerCase();
     const toks = hay.split(/[^\p{L}]+/u);
     let sc = 0;
     for (const w of words) {
@@ -213,7 +237,7 @@ function parseText(text: string, list: Item[]) {
     }
     if (sc > score) { score = sc; best = it; }
   }
-  return { item: score ? best : null, price };
+  return { item: score ? best : null, price, place: placeOf(text) };
 }
 
 const HELP =
@@ -221,7 +245,8 @@ const HELP =
 
 <b>Как пользоваться:</b>
 📷 Пришли фото ценника, меню или прайса — скажу, норм цена или для туриста.
-✍️ Или напиши, например: <code>кокос 50000</code> или <code>массаж 300k</code>
+✍️ Или напиши, например: <code>кокос 50000 на улице</code> или <code>массаж 300k</code>
+📍 Можно добавить, где ты: <i>на улице, в кафе, на набережной</i> — вердикт будет точнее.
 📱 Или открой приложение кнопкой ниже: там все цены, лестница «улица → кафе → набережная» и фразы на вьетнамском.`;
 
 Deno.serve(async (req) => {
@@ -253,8 +278,9 @@ Deno.serve(async (req) => {
       const buf = await img.arrayBuffer();
       if (buf.byteLength > 6_000_000) { await send(chat, "Фото слишком большое. Отправь обычным фото, не файлом."); return new Response("ok"); }
       const r = await recognize(toB64(buf), list);
+      const pl = placeOf(msg.caption ?? "");
       if (r.item && r.price) {
-        const v = verdict(r.item, r.price);
+        const v = verdict(r.item, r.price, pl);
         await log(user, "photo", { item: r.item.id, price: r.price, verdict: v.v });
         await send(chat, v.text);
       } else if (r.item) {
@@ -271,7 +297,7 @@ Deno.serve(async (req) => {
       const list = await items();
       const r = parseText(text, list);
       if (r.item && r.price) {
-        const v = verdict(r.item, r.price);
+        const v = verdict(r.item, r.price, r.place);
         await log(user, "check", { item: r.item.id, price: r.price, verdict: v.v });
         await send(chat, v.text);
       } else if (r.item) {
