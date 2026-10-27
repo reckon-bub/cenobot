@@ -80,11 +80,14 @@ input[type=search],input[inputmode]{width:100%;font:inherit;font-size:1.05rem;pa
 .big span{font-size:1.1rem}
 .big button{font:inherit;font-weight:700;border:0;border-radius:12px;padding:12px 20px;background:var(--tag-ink);color:var(--tag);cursor:pointer}
 [hidden]{display:none!important}
+.tgbar{display:flex;align-items:center;justify-content:space-between;gap:10px;background:#2aabee;color:#fff;border-radius:12px;padding:10px 14px;font-weight:700;font-size:.92rem;text-decoration:none}.tgbar span:last-child{background:#fff;color:#1a8ad4;border-radius:8px;padding:6px 10px;white-space:nowrap}
+
 footer{font-size:.78rem;color:var(--muted);text-align:center}
 </style>
 </head>
 <body>
 <div class="app">
+  <a class="tgbar" id="tgbar" href="https://t.me/pochem_nt_bot" target="_blank" rel="noopener" hidden><span>📷 В Telegram можно проверять цены по фото</span><span>Открыть</span></a>
   <div class="top">
     <div class="brand"><i>₫</i> Почём Нячанг</div>
     <div class="seg" role="group" aria-label="Валюта">
@@ -143,6 +146,7 @@ footer{font-size:.78rem;color:var(--muted);text-align:center}
   var C=window.CONFIG, tg=window.Telegram&&Telegram.WebApp;
   if(tg){try{tg.ready();tg.expand();}catch(e){}}
   var tgUser=tg&&tg.initDataUnsafe&&tg.initDataUnsafe.user;
+  if(!(tg&&tg.initData)){var bar=document.getElementById('tgbar');if(bar){bar.hidden=false;bar.addEventListener('click',function(){log('to_tg');});}}
   var uid=(function(){
     if(tgUser&&tgUser.id) return 'tg'+tgUser.id;
     try{var x=localStorage.getItem('cb_uid');if(!x){x='web'+Math.random().toString(36).slice(2,10);localStorage.setItem('cb_uid',x);}return x;}catch(e){return 'web-anon';}
