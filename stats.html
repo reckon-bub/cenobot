@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Ценобот — статистика</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Russo+One&family=Nunito:wght@400;600;700;800&display=swap">
+<script>
+/* Те же 2 значения, что в index.html */
+window.CONFIG = { SUPABASE_URL: "https://yedqzdhzoinuewlqeyyc.supabase.co", SUPABASE_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InllZHF6ZGh6b2ludWV3bHFleXljIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTMwODEzMTksImV4cCI6MjEwODY1NzMxOX0.i8VJp2esiPkDuDkuVRjkA8goSWPg9Ns4WTxkOwcM6M4" };
+</script>
+<style>
+:root{--bg:#eef3ea;--fg:#15211a;--muted:#5d6c61;--line:#d2dbcd;--card:#fff;--leaf:#1f7a4a;--tag:#ffd94d;--bad:#d23a2a}
+@media (prefers-color-scheme:dark){:root{--bg:#0f1712;--fg:#e6efe8;--muted:#97a99c;--line:#243329;--card:#16211a;--leaf:#4fc283;--bad:#ff6a58;color-scheme:dark}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:"Nunito",system-ui,sans-serif}
+.wrap{max-width:860px;margin:0 auto;padding:24px max(16px,env(safe-area-inset-right,0px)) 48px max(16px,env(safe-area-inset-left,0px));display:flex;flex-direction:column;gap:20px}
+h1{font-family:"Russo One",system-ui,sans-serif;font-weight:400;margin:0;font-size:1.7rem}
+.sub{color:var(--muted);margin:0}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px}
+.tile{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px}
+.tile b{display:block;font-family:"Russo One",system-ui,sans-serif;font-weight:400;font-size:2rem;font-variant-numeric:tabular-nums}
+.tile span{color:var(--muted);font-size:.88rem}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;overflow-x:auto}
+.card h2{margin:0 0 12px;font-size:1.05rem}
+.bars{display:flex;align-items:flex-end;gap:4px;height:140px;border-bottom:1px solid var(--line)}
+.bars div{flex:1;background:var(--leaf);border-radius:4px 4px 0 0;min-height:2px;position:relative}
+.days{display:flex;gap:4px;font-size:.7rem;color:var(--muted);margin-top:4px}
+.days span{flex:1;text-align:center;overflow:hidden}
+table{width:100%;border-collapse:collapse;font-size:.92rem;font-variant-numeric:tabular-nums}
+th,td{text-align:left;padding:8px 6px;border-bottom:1px solid var(--line)}
+th{color:var(--muted);font-weight:700;font-size:.8rem}
+td.n,th.n{text-align:right}
+.err{color:var(--bad)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div><h1>Ценобот Нячанг · статистика</h1><p class="sub" id="upd">Загружаю…</p></div>
+  <div class="tiles">
+    <div class="tile"><b id="u30">—</b><span>пользователей за 30 дней</span></div>
+    <div class="tile"><b id="u7">—</b><span>пользователей за 7 дней</span></div>
+    <div class="tile"><b id="c30">—</b><span>проверок цен за 30 дней</span></div>
+    <div class="tile"><b id="uall">—</b><span>пользователей всего</span></div>
+  </div>
+  <div class="card"><h2>Пользователи по дням (30 дней)</h2><div class="bars" id="bars"></div><div class="days" id="days"></div></div>
+  <div class="card"><h2>По дням</h2><table><thead><tr><th>День</th><th class="n">Люди</th><th class="n">Открытия</th><th class="n">Проверки</th><th class="n">Фото</th></tr></thead><tbody id="daily"></tbody></table></div>
+  <div class="card"><h2>Что проверяют чаще всего (30 дней)</h2><table><thead><tr><th>Товар</th><th class="n">Проверок</th><th class="n">Людей</th><th class="n">«Цена для туриста»</th></tr></thead><tbody id="items"></tbody></table></div>
+</div>
+<script>
+(function(){
+  var C=window.CONFIG,fmt=new Intl.NumberFormat('ru-RU');
+  if(!C.SUPABASE_URL||!C.SUPABASE_KEY){document.getElementById('upd').innerHTML='<span class="err">Заполни SUPABASE_URL и SUPABASE_KEY в stats.html</span>';return;}
+  var sb=supabase.createClient(C.SUPABASE_URL,C.SUPABASE_KEY,{auth:{persistSession:false}});
+  function td(t,n){var e=document.createElement('td');e.textContent=t;if(n)e.className='n';return e;}
+  Promise.all([
+    sb.from('stats_totals').select('*').single(),
+    sb.from('stats_daily').select('*').order('day',{ascending:false}).limit(30),
+    sb.from('stats_items').select('*').limit(20),
+    fetch('items.csv').then(function(r){return r.text();}).catch(function(){return '';})
+  ]).then(function(res){
+    var t=res[0].data||{},d=(res[1].data||[]),it=(res[2].data||[]);
+    var names={};res[3].split('\n').slice(1).forEach(function(l){var m=l.split(',');if(m[0])names[m[0]]=(m[2]||'')+' '+(m[3]||'').replace(/"/g,'');});
+    document.getElementById('u30').textContent=fmt.format(t.users_30d||0);
+    document.getElementById('u7').textContent=fmt.format(t.users_7d||0);
+    document.getElementById('c30').textContent=fmt.format(t.checks_30d||0);
+    document.getElementById('uall').textContent=fmt.format(t.users_all||0);
+    var max=Math.max.apply(null,d.map(function(x){return x.users;}).concat([1]));
+    var asc=d.slice().reverse(),bars=document.getElementById('bars'),days=document.getElementById('days');
+    asc.forEach(function(x){var b=document.createElement('div');b.style.height=(x.users/max*100)+'%';b.title=x.day+': '+x.users;bars.appendChild(b);
+      var s=document.createElement('span');s.textContent=x.day.slice(8,10);days.appendChild(s);});
+    var tb=document.getElementById('daily');d.forEach(function(x){var r=document.createElement('tr');r.appendChild(td(x.day));r.appendChild(td(fmt.format(x.users),1));r.appendChild(td(fmt.format(x.opens),1));r.appendChild(td(fmt.format(x.checks),1));r.appendChild(td(fmt.format(x.photos),1));tb.appendChild(r);});
+    var ti=document.getElementById('items');it.forEach(function(x){var r=document.createElement('tr');r.appendChild(td(names[x.item]||x.item));r.appendChild(td(fmt.format(x.checks),1));r.appendChild(td(fmt.format(x.users),1));r.appendChild(td(fmt.format(x.tourist_verdicts),1));ti.appendChild(r);});
+    document.getElementById('upd').textContent='Обновлено: '+new Date().toLocaleString('ru-RU')+' · данные из приложения в реальном времени';
+    if(res[0].error||res[1].error)document.getElementById('upd').innerHTML='<span class="err">Ошибка чтения статистики. Проверь, что запустил setup.sql.</span>';
+  });
+})();
+</script>
+</body>
+</html>
