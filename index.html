@@ -212,7 +212,7 @@ footer{font-size:.78rem;color:var(--muted);text-align:center}
     if(tg&&verdict&&verdict!==lastVerdict&&tg.HapticFeedback){try{tg.HapticFeedback.notificationOccurred(verdict==='ok'?'success':verdict==='warn'?'warning':'error');}catch(e){}}
     lastVerdict=verdict;
     var L=document.getElementById('ladder');L.innerHTML='';
-    [['s','🛵 Улица / рынок'],['c','🏪 Кафе / магазин'],['t','🏖 Набережная / отель']].forEach(function(r){
+    (it.cat==='Экскурсии'?[['s','🛵 Улица'],['c','🎟 Напрямую / на кассе'],['t','🧳 Через агентство']]:it.cat==='Услуги'?[['s','🛵 Улица / рынок'],['c','🏪 Обычный салон'],['t','🏖 Туристический центр']]:[['s','🛵 Улица / рынок'],['c','🏪 Кафе / магазин'],['t','🏖 Набережная / отель']]).forEach(function(r){
       var d=document.createElement('div');d.className='rung '+r[0]+(st.place===r[0]?' here':'');
       d.innerHTML='<span class="dot"></span><span></span><span class="v"></span>';d.children[1].textContent=r[1];
       if(it[r[0]])d.children[2].textContent=range(it[r[0]]);
