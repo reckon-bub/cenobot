@@ -6,7 +6,8 @@
 // Секреты (Edge Functions → Secrets):
 //   TELEGRAM_BOT_TOKEN  — токен из @BotFather
 //   TG_WEBHOOK_SECRET   — любая длинная строка (защита от чужих запросов)
-//   GEMINI_API_KEY      — уже добавлен для photo-check
+//   OPENAI_API_KEY      — ключ OpenAI (основное распознавание фото)
+//   GEMINI_API_KEY      — запасной вариант, необязательно
 //   GEMINI_MODEL        — необязательно (по умолчанию gemini-2.5-flash)
 // SUPABASE_URL и SUPABASE_SERVICE_ROLE_KEY Supabase подставляет сам.
 
@@ -224,6 +225,56 @@ async function gemini(prompt: string, b64: string): Promise<any> {
   throw new Error(last);
 }
 
+// ---------- OpenAI (основной, если задан OPENAI_API_KEY) ----------
+const OPENAI_KEY = Deno.env.get("OPENAI_API_KEY") ?? "";
+const OAI_MODELS: string[] = [...new Set([Deno.env.get("OPENAI_MODEL") || "gpt-4.1-mini", "gpt-4o-mini", "gpt-5-mini"])];
+async function openai(prompt: string, b64: string): Promise<any> {
+  let last = "openai error";
+  for (const m of OAI_MODELS) {
+    const reasoning = /^(gpt-5|o\d)/.test(m);
+    const body: any = {
+      model: m,
+      messages: [{ role: "user", content: [
+        { type: "text", text: prompt },
+        { type: "image_url", image_url: { url: "data:image/jpeg;base64," + b64, detail: "high" } },
+      ] }],
+      response_format: { type: "json_object" },
+      max_completion_tokens: reasoning ? 2000 : 300,
+    };
+    if (reasoning) body.reasoning_effort = "minimal"; else body.temperature = 0.1;
+    let r: Response, d: any;
+    try {
+      r = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${OPENAI_KEY}` },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(30_000),
+      });
+      d = await r.json().catch(() => ({}));
+    } catch (e) {
+      last = `${m}: не ответил вовремя (${String((e as Error)?.name ?? e)})`; console.error("openai", last); continue;
+    }
+    if (r.ok) {
+      const raw = String(d?.choices?.[0]?.message?.content ?? "").replace(/```json|```/g, "").trim();
+      try { return JSON.parse(raw.slice(raw.indexOf("{"), raw.lastIndexOf("}") + 1) || "{}"); } catch { return {}; }
+    }
+    const msg = String(d?.error?.message || "");
+    last = `${m}: ${r.status} ${msg}`.slice(0, 200); console.error("openai", last);
+    if (r.status === 404 || r.status >= 500 || /model/i.test(msg)) continue; // нет модели — следующая
+    throw new Error(last); // ключ, оплата, лимит — показываем причину
+  }
+  throw new Error(last);
+}
+// Сначала OpenAI (если есть ключ), при сбое — Gemini (если есть ключ)
+async function ai(prompt: string, b64: string): Promise<any> {
+  const hasGemini = !!(Deno.env.get("GEMINI_API_KEY"));
+  if (OPENAI_KEY) {
+    try { return await openai(prompt, b64); }
+    catch (e) { if (!hasGemini) throw e; console.error("openai failed, fallback to gemini", e); }
+  }
+  return await gemini(prompt, b64);
+}
+
 // ---------- распознавание фото ----------
 async function recognize(b64: string, list: Item[]) {
   const ids = list.map((i) => `${i.id}: ${i.name} (${i.vi})`).join("\n");
@@ -236,7 +287,7 @@ async function recognize(b64: string, list: Item[]) {
 ${ids}
 
 Ответь ТОЛЬКО JSON: {"item_id": "id или null", "name_ru": "коротко по-русски", "price_vnd": число или null}`;
-  const out = await gemini(prompt, b64);
+  const out = await ai(prompt, b64);
   const price = Number(out.price_vnd);
   return {
     item: list.find((i) => i.id === out.item_id) ?? null,

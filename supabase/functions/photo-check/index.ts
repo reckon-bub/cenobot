@@ -62,13 +62,63 @@ async function gemini(prompt: string, b64: string): Promise<any> {
   throw new Error(last);
 }
 
+// ---------- OpenAI (основной, если задан OPENAI_API_KEY) ----------
+const OPENAI_KEY = Deno.env.get("OPENAI_API_KEY") ?? "";
+const OAI_MODELS: string[] = [...new Set([Deno.env.get("OPENAI_MODEL") || "gpt-4.1-mini", "gpt-4o-mini", "gpt-5-mini"])];
+async function openai(prompt: string, b64: string): Promise<any> {
+  let last = "openai error";
+  for (const m of OAI_MODELS) {
+    const reasoning = /^(gpt-5|o\d)/.test(m);
+    const body: any = {
+      model: m,
+      messages: [{ role: "user", content: [
+        { type: "text", text: prompt },
+        { type: "image_url", image_url: { url: "data:image/jpeg;base64," + b64, detail: "high" } },
+      ] }],
+      response_format: { type: "json_object" },
+      max_completion_tokens: reasoning ? 2000 : 300,
+    };
+    if (reasoning) body.reasoning_effort = "minimal"; else body.temperature = 0.1;
+    let r: Response, d: any;
+    try {
+      r = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${OPENAI_KEY}` },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(30_000),
+      });
+      d = await r.json().catch(() => ({}));
+    } catch (e) {
+      last = `${m}: не ответил вовремя (${String((e as Error)?.name ?? e)})`; console.error("openai", last); continue;
+    }
+    if (r.ok) {
+      const raw = String(d?.choices?.[0]?.message?.content ?? "").replace(/```json|```/g, "").trim();
+      try { return JSON.parse(raw.slice(raw.indexOf("{"), raw.lastIndexOf("}") + 1) || "{}"); } catch { return {}; }
+    }
+    const msg = String(d?.error?.message || "");
+    last = `${m}: ${r.status} ${msg}`.slice(0, 200); console.error("openai", last);
+    if (r.status === 404 || r.status >= 500 || /model/i.test(msg)) continue; // нет модели — следующая
+    throw new Error(last); // ключ, оплата, лимит — показываем причину
+  }
+  throw new Error(last);
+}
+// Сначала OpenAI (если есть ключ), при сбое — Gemini (если есть ключ)
+async function ai(prompt: string, b64: string): Promise<any> {
+  const hasGemini = !!(Deno.env.get("GEMINI_API_KEY"));
+  if (OPENAI_KEY) {
+    try { return await openai(prompt, b64); }
+    catch (e) { if (!hasGemini) throw e; console.error("openai failed, fallback to gemini", e); }
+  }
+  return await gemini(prompt, b64);
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return json({ error: "POST only" }, 405);
 
   const key = Deno.env.get("GEMINI_API_KEY");
   const model = Deno.env.get("GEMINI_MODEL") || "gemini-2.5-flash";
-  if (!key) return json({ error: "GEMINI_API_KEY is not set" }, 500);
+  if (!key && !OPENAI_KEY) return json({ error: "Нет ключа: добавь OPENAI_API_KEY в Secrets" }, 500);
 
   let image = "", items: { id: string; name: string; vi: string }[] = [];
   try {
@@ -93,7 +143,7 @@ ${list}
 {"item_id": "id или null", "name_ru": "название по-русски коротко", "price_vnd": число или null}`;
 
   try {
-    const out = await gemini(prompt, image);
+    const out = await ai(prompt, image);
     const ids = new Set(items.map((i) => i.id));
     return json({
       item_id: ids.has(out.item_id) ? out.item_id : null,
