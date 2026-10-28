@@ -179,6 +179,34 @@ async function log(user: any, type: string, d: { item?: string | null; price?: n
   } catch (_) { /* статистика не должна ломать бота */ }
 }
 
+// ---------- Gemini: пробуем несколько моделей, честно возвращаем ошибку ----------
+const MODELS = [...new Set([GEMINI_MODEL, "gemini-2.5-flash", "gemini-flash-latest", "gemini-2.0-flash"])];
+async function gemini(prompt: string, b64: string): Promise<any> {
+  if (!GEMINI_KEY) throw new Error("GEMINI_API_KEY не задан в Secrets");
+  let last = "gemini error";
+  for (const m of MODELS) {
+    const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${GEMINI_KEY}`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: "image/jpeg", data: b64 } }] }],
+        generationConfig: { response_mime_type: "application/json", temperature: 0.1 },
+      }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      last = `${m}: ${r.status} ${d?.error?.message || ""}`.slice(0, 200);
+      console.error("gemini", last);
+      if (r.status === 404 || r.status === 400 && /model/i.test(last)) continue; // нет такой модели — пробуем следующую
+      throw new Error(last);
+    }
+    const parts = d?.candidates?.[0]?.content?.parts ?? [];
+    const raw = parts.map((x: any) => x.text ?? "").join("").replace(/```json|```/g, "").trim();
+    const j = raw.slice(raw.indexOf("{"), raw.lastIndexOf("}") + 1);
+    try { return JSON.parse(j || "{}"); } catch { return {}; }
+  }
+  throw new Error(last);
+}
+
 // ---------- распознавание фото ----------
 async function recognize(b64: string, list: Item[]) {
   const ids = list.map((i) => `${i.id}: ${i.name} (${i.vi})`).join("\n");
@@ -191,16 +219,7 @@ async function recognize(b64: string, list: Item[]) {
 ${ids}
 
 Ответь ТОЛЬКО JSON: {"item_id": "id или null", "name_ru": "коротко по-русски", "price_vnd": число или null}`;
-  const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_KEY}`, {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: "image/jpeg", data: b64 } }] }],
-      generationConfig: { response_mime_type: "application/json", temperature: 0.1 },
-    }),
-  });
-  const d = await r.json();
-  if (!r.ok) throw new Error(d?.error?.message || "gemini error");
-  const out = JSON.parse(d?.candidates?.[0]?.content?.parts?.[0]?.text || "{}");
+  const out = await gemini(prompt, b64);
   const price = Number(out.price_vnd);
   return {
     item: list.find((i) => i.id === out.item_id) ?? null,
@@ -277,7 +296,13 @@ Deno.serve(async (req) => {
       const img = await fetch(`https://api.telegram.org/file/bot${TOKEN}/${path}`);
       const buf = await img.arrayBuffer();
       if (buf.byteLength > 6_000_000) { await send(chat, "Фото слишком большое. Отправь обычным фото, не файлом."); return new Response("ok"); }
-      const r = await recognize(toB64(buf), list);
+      let r: Awaited<ReturnType<typeof recognize>>;
+      try { r = await recognize(toB64(buf), list); }
+      catch (e) {
+        console.error("photo", e);
+        await send(chat, `Не смог распознать фото 🙈\nПричина: <code>${esc(String((e as Error)?.message ?? e).slice(0, 220))}</code>\n\nПока можно написать текстом, например: <code>кокос 50000</code>`);
+        return new Response("ok");
+      }
       const pl = placeOf(msg.caption ?? "");
       if (r.item && r.price) {
         const v = verdict(r.item, r.price, pl);
@@ -309,6 +334,7 @@ Deno.serve(async (req) => {
       }
     }
   } catch (_e) {
+    console.error("bot", _e);
     try { await send(chat, "Что-то пошло не так 🙈 Попробуй ещё раз через минуту или открой приложение 👇"); } catch (_) { /* ignore */ }
   }
   return new Response("ok");
