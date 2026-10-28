@@ -251,7 +251,7 @@ footer{font-size:.78rem;color:var(--muted);text-align:center}
   document.getElementById('file').addEventListener('change',function(e){
     var f=e.target.files&&e.target.files[0];if(!f)return;
     if(!C.PHOTO_URL){say('Проверка по фото скоро появится. Пока выбери товар и введи цену.');return;}
-    say('📷 Распознаю… обычно 3–5 секунд');
+    say('📷 Распознаю… обычно до 30 секунд');
     var img=new Image(),url=URL.createObjectURL(f);
     img.onerror=function(){say('Не смог открыть фото. Попробуй сделать снимок ещё раз или пришли его боту в чат.');};
     img.onload=function(){
@@ -259,7 +259,7 @@ footer{font-size:.78rem;color:var(--muted);text-align:center}
       cv.width=Math.round(img.width*s);cv.height=Math.round(img.height*s);cv.getContext('2d').drawImage(img,0,0,cv.width,cv.height);
       URL.revokeObjectURL(url);
       var b64=cv.toDataURL('image/jpeg',0.75).split(',')[1];
-      var ac=new AbortController(),tm=setTimeout(function(){ac.abort();},45000);
+      var ac=new AbortController(),tm=setTimeout(function(){ac.abort();},100000);
       fetch(C.PHOTO_URL,{signal:ac.signal,method:'POST',headers:{'Content-Type':'application/json','apikey':C.SUPABASE_KEY},
         body:JSON.stringify({image:b64,items:I.map(function(x){return{id:x.id,name:x.name,vi:x.vi};})})})
       .then(function(r){clearTimeout(tm);return r.json().catch(function(){return {error:'сервер ответил '+r.status};});})
@@ -273,7 +273,7 @@ footer{font-size:.78rem;color:var(--muted);text-align:center}
         render(false);
         log('photo',{item:hit?hit.id:(d.name_ru||'unknown'),place:st.place,price:d.price_vnd||null,verdict:lastVerdict||null});
       })
-      .catch(function(err){clearTimeout(tm);if(err&&err.name==='AbortError'){say('Распознавание не ответило за 45 секунд 🙈 Попробуй ещё раз или введи цену вручную.');return;}say('Не получилось распознать 🙈 '+(err&&err.message?'('+String(err.message).slice(0,160)+') ':'')+'Попробуй ещё раз или введи цену вручную.');});
+      .catch(function(err){clearTimeout(tm);if(err&&err.name==='AbortError'){say('Распознавание не ответило за 100 секунд 🙈 Попробуй ещё раз или введи цену вручную.');return;}say('Не получилось распознать 🙈 '+(err&&err.message?'('+String(err.message).slice(0,160)+') ':'')+'Попробуй ещё раз или введи цену вручную.');});
     };
     img.src=url;e.target.value='';
   });

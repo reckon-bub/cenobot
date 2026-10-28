@@ -180,10 +180,10 @@ async function log(user: any, type: string, d: { item?: string | null; price?: n
 }
 
 // ---------- Gemini: запасные модели, таймауты, честная ошибка ----------
-const MODELS: string[] = [...new Set([GEMINI_MODEL, "gemini-3.8-flash", "gemini-flash-latest", "gemini-2.5-flash-lite"])];
+const MODELS: string[] = [...new Set([GEMINI_MODEL, "gemini-3.8-flash", "gemini-flash-lite-latest", "gemini-flash-latest", "gemini-2.5-flash-lite"])];
 async function gemini(prompt: string, b64: string): Promise<any> {
   if (!GEMINI_KEY) throw new Error("GEMINI_API_KEY не задан в Secrets");
-  const deadline = Date.now() + 40_000; // не дольше 40 секунд на всё
+  const deadline = Date.now() + 100_000; // общий лимит (функция живёт до 150 с)
   let last = "gemini error";
   for (let i = 0; i < MODELS.length && Date.now() < deadline - 3000; i++) {
     const m = MODELS[i];
@@ -197,7 +197,7 @@ async function gemini(prompt: string, b64: string): Promise<any> {
         r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${GEMINI_KEY}`, {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: "image/jpeg", data: b64 } }] }], generationConfig: gen }),
-          signal: AbortSignal.timeout(Math.max(3000, Math.min(25_000, deadline - Date.now()))),
+          signal: AbortSignal.timeout(Math.max(3000, Math.min(60_000, deadline - Date.now()))),
         });
         d = await r.json().catch(() => ({}));
       } catch (e) {
@@ -299,7 +299,10 @@ async function handle(chat: number, user: any, msg: any): Promise<Response | voi
     if (msg.photo?.length) {
       await tg("sendChatAction", { chat_id: chat, action: "typing" });
       const list = await items();
-      const ph = msg.photo[msg.photo.length - 1];
+      // берём размер ~800–1280 px: быстрее для модели, текст ещё читается
+      const sizes = [...msg.photo].sort((a: any, b: any) => a.width - b.width);
+      const ph = sizes.find((s: any) => Math.max(s.width, s.height) >= 800) ?? sizes[sizes.length - 1];
+      await send(chat, "📷 Смотрю фото… обычно до 30 секунд", false);
       const f = await tg("getFile", { file_id: ph.file_id });
       const path = f?.result?.file_path;
       if (!path) { await send(chat, "Не смог скачать фото. Попробуй отправить ещё раз."); return new Response("ok"); }

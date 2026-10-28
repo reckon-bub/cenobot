@@ -18,10 +18,10 @@ function json(body: unknown, status = 200) {
 const KEY = Deno.env.get("GEMINI_API_KEY") ?? "";
 const MODEL_ENV = Deno.env.get("GEMINI_MODEL") || "gemini-3.8-flash";
 // ---------- Gemini: запасные модели, таймауты, честная ошибка ----------
-const MODELS: string[] = [...new Set([MODEL_ENV, "gemini-3.8-flash", "gemini-flash-latest", "gemini-2.5-flash-lite"])];
+const MODELS: string[] = [...new Set([MODEL_ENV, "gemini-3.8-flash", "gemini-flash-lite-latest", "gemini-flash-latest", "gemini-2.5-flash-lite"])];
 async function gemini(prompt: string, b64: string): Promise<any> {
   if (!KEY) throw new Error("GEMINI_API_KEY не задан в Secrets");
-  const deadline = Date.now() + 40_000; // не дольше 40 секунд на всё
+  const deadline = Date.now() + 90_000; // общий лимит (функция живёт до 150 с)
   let last = "gemini error";
   for (let i = 0; i < MODELS.length && Date.now() < deadline - 3000; i++) {
     const m = MODELS[i];
@@ -35,7 +35,7 @@ async function gemini(prompt: string, b64: string): Promise<any> {
         r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${KEY}`, {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: "image/jpeg", data: b64 } }] }], generationConfig: gen }),
-          signal: AbortSignal.timeout(Math.max(3000, Math.min(25_000, deadline - Date.now()))),
+          signal: AbortSignal.timeout(Math.max(3000, Math.min(60_000, deadline - Date.now()))),
         });
         d = await r.json().catch(() => ({}));
       } catch (e) {
