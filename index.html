@@ -38,6 +38,7 @@ html,body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--body);
 .top{display:flex;justify-content:space-between;align-items:center;gap:10px}
 .brand{font-family:var(--display);font-size:1.25rem;display:flex;align-items:center;gap:8px}
 .brand img{width:34px;height:34px;border-radius:50%;display:block}
+.tag{margin-top:18px}
 .coco{position:absolute;right:10px;top:-26px;width:84px;height:84px;border-radius:50%;transform:rotate(4deg);box-shadow:0 6px 14px -8px rgba(0,0,0,.5);transition:transform .2s}
 .coco.pop{transform:rotate(4deg) scale(1.12)}
 @media (prefers-reduced-motion:reduce){.coco{transition:none}}
@@ -128,6 +129,7 @@ footer{font-size:.78rem;color:var(--muted);text-align:center}
       <input id="file" type="file" accept="image/*" capture="environment" hidden>
     </div>
     <div class="quick" id="quick"></div>
+    <span class="note" id="demoNote" hidden>👆 Это пример: кокос на улице за 50 000. Выбери свой товар и введи цену, которую тебе назвали.</span>
     <span class="note" id="photoNote" hidden></span>
   </div>
 
@@ -180,7 +182,7 @@ footer{font-size:.78rem;color:var(--muted);text-align:center}
   function rng(a,b){a=parseInt(a,10);b=parseInt(b,10);if(isNaN(a)&&isNaN(b))return null;if(isNaN(a))a=b;if(isNaN(b))b=a;return [a,b];}
 
   var I=[],RATE={vnd:{k:1,s:'₫'},rub:{k:325,s:'₽'},kzt:{k:50,s:'₸'}};
-  var st={item:null,place:'s',cur:'vnd',cat:'Все'};
+  var st={item:null,place:'s',cur:'vnd',cat:'Все'},demo=false;
   var fmt=new Intl.NumberFormat('ru-RU',{maximumFractionDigits:0});
   function money(v){if(st.cur==='vnd')return fmt.format(v)+' ₫';return '≈'+fmt.format(Math.round(v/RATE[st.cur].k))+' '+RATE[st.cur].s;}
   function k(v){return v>=1000?String(Math.round(v/100)/10).replace('.',',').replace(/,0$/,'')+'k':String(v);}
@@ -205,7 +207,7 @@ footer{font-size:.78rem;color:var(--muted);text-align:center}
     I.filter(function(x){return (st.cat==='Все'||x.cat===st.cat)&&(!f||(x.name+' '+x.vi).toLowerCase().indexOf(f)>-1);}).forEach(function(x){
       var b=document.createElement('button');b.type='button';b.className='chip';b.textContent=x.emoji+' '+x.name;
       b.setAttribute('aria-pressed',x.id===st.item?'true':'false');
-      b.addEventListener('click',function(){st.item=x.id;document.getElementById('pr').value='';drawChips(document.getElementById('q').value);render(true);});
+      b.addEventListener('click',function(){st.item=x.id;document.getElementById('pr').value='';demo=false;var dn=document.getElementById('demoNote');if(dn)dn.hidden=true;drawChips(document.getElementById('q').value);render(true);log('view',{item:x.id,place:st.place});});
       chips.appendChild(b);});
   }
   var lastLogged='',logTimer=null,lastVerdict='';
@@ -235,12 +237,12 @@ footer{font-size:.78rem;color:var(--muted);text-align:center}
       L.appendChild(d);});
     var tip=document.getElementById('tip');if(it.tip){tip.textContent='💡 '+it.tip;tip.hidden=false;}else tip.hidden=true;
     var q=document.getElementById('quick');q.innerHTML='';
-    [c.v,Math.round(c.v*1.3/1000)*1000,Math.round(c.v*2/1000)*1000,Math.round(c.v*3.5/1000)*1000].forEach(function(x){var b=document.createElement('button');b.type='button';b.textContent=k(x);b.addEventListener('click',function(){document.getElementById('pr').value=x;render(true);});q.appendChild(b);});
-    if(p&&fromUser){var key=it.id+'|'+st.place+'|'+p;clearTimeout(logTimer);logTimer=setTimeout(function(){if(key!==lastLogged){lastLogged=key;log('check',{item:it.id,place:st.place,price:p,verdict:verdict});}},1500);}
+    [c.v,Math.round(c.v*1.3/1000)*1000,Math.round(c.v*2/1000)*1000,Math.round(c.v*3.5/1000)*1000].forEach(function(x){var b=document.createElement('button');b.type='button';b.textContent=k(x);b.addEventListener('click',function(){demo=false;var dn=document.getElementById('demoNote');if(dn)dn.hidden=true;document.getElementById('pr').value=x;render(true);});q.appendChild(b);});
+    if(p&&fromUser&&!demo){var key=it.id+'|'+st.place+'|'+p;clearTimeout(logTimer);logTimer=setTimeout(function(){if(key!==lastLogged){lastLogged=key;log('check',{item:it.id,place:st.place,price:p,verdict:verdict});}},1500);}
   }
   document.querySelectorAll('.place').forEach(function(b){b.addEventListener('click',function(){st.place=b.dataset.p;document.querySelectorAll('.place').forEach(function(x){x.setAttribute('aria-pressed',x===b?'true':'false');});render(true);});});
   document.querySelectorAll('[data-cur]').forEach(function(b){b.addEventListener('click',function(){st.cur=b.dataset.cur;document.querySelectorAll('[data-cur]').forEach(function(x){x.setAttribute('aria-pressed',x===b?'true':'false');});render(false);});});
-  document.getElementById('pr').addEventListener('input',function(){render(true);});
+  document.getElementById('pr').addEventListener('input',function(){demo=false;var dn=document.getElementById('demoNote');if(dn)dn.hidden=true;render(true);});
   document.getElementById('q').addEventListener('input',function(e){drawChips(e.target.value);});
 
   // ---------- Фото ----------
@@ -286,7 +288,7 @@ footer{font-size:.78rem;color:var(--muted);text-align:center}
   // ---------- Загрузка цен ----------
   fetch('items.csv?v='+Date.now()).then(function(r){return r.text();}).then(function(t){
     I=parseCSV(t).map(function(o){return{id:o.id,cat:o.cat,emoji:o.emoji,name:o.name,vi:o.vi,s:rng(o.s_min,o.s_max),c:rng(o.c_min,o.c_max),t:rng(o.t_min,o.t_max),tip:o.tip};}).filter(function(x){return x.s||x.c||x.t;});
-    st.item=I[0].id;drawCats();drawChips('');render(false);
+    st.item=I[0].id;demo=true;document.getElementById('pr').value=50000;drawCats();drawChips('');render(false);var dn=document.getElementById('demoNote');if(dn)dn.hidden=false;
     document.getElementById('cnt').textContent='В базе: '+I.length+' · цены собраны вручную в Нячанге';
     log('open');
   }).catch(function(){document.getElementById('cnt').textContent='Не удалось загрузить цены. Проверь интернет и открой снова.';});
