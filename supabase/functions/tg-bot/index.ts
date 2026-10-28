@@ -285,15 +285,8 @@ const HELP =
 📍 Можно добавить, где ты: <i>на улице, в кафе, на набережной</i> — вердикт будет точнее.
 📱 Или открой приложение кнопкой ниже: там все цены, лестница «улица → кафе → набережная» и фразы на вьетнамском.`;
 
-Deno.serve(async (req) => {
-  if (req.method !== "POST") return new Response("ok");
-  if (SECRET && req.headers.get("x-telegram-bot-api-secret-token") !== SECRET) return new Response("forbidden", { status: 403 });
-
-  let upd: any;
-  try { upd = await req.json(); } catch { return new Response("ok"); }
-  const msg = upd.message ?? upd.edited_message;
-  if (!msg || !msg.chat || msg.chat.type !== "private") return new Response("ok");
-  const chat = msg.chat.id, user = msg.from ?? { id: chat };
+const seen = new Set<number>();
+async function handle(chat: number, user: any, msg: any): Promise<Response | void> {
 
   try {
     const text: string = msg.text ?? "";
@@ -354,5 +347,23 @@ Deno.serve(async (req) => {
     console.error("bot", _e);
     try { await send(chat, "Что-то пошло не так 🙈 Попробуй ещё раз через минуту или открой приложение 👇"); } catch (_) { /* ignore */ }
   }
+}
+
+Deno.serve(async (req) => {
+  if (req.method !== "POST") return new Response("ok");
+  if (SECRET && req.headers.get("x-telegram-bot-api-secret-token") !== SECRET) return new Response("forbidden", { status: 403 });
+
+  let upd: any;
+  try { upd = await req.json(); } catch { return new Response("ok"); }
+  const msg = upd.message ?? upd.edited_message;
+  if (!msg || !msg.chat || msg.chat.type !== "private") return new Response("ok");
+  const chat = msg.chat.id, user = msg.from ?? { id: chat };
+  // Telegram ждёт ответ быстро, иначе шлёт то же сообщение повторно → дубли.
+  // Поэтому сразу отвечаем «ok», а фото разбираем в фоне.
+  if (seen.has(upd.update_id)) return new Response("ok");
+  seen.add(upd.update_id); if (seen.size > 500) seen.delete(seen.values().next().value);
+  const job = handle(chat, user, msg);
+  const rt = (globalThis as any).EdgeRuntime;
+  if (rt?.waitUntil) { rt.waitUntil(job); } else { await job; }
   return new Response("ok");
 });
