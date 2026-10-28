@@ -45,7 +45,7 @@ ${list}
 Ответь ТОЛЬКО JSON без пояснений:
 {"item_id": "id или null", "name_ru": "название по-русски коротко", "price_vnd": число или null}`;
 
-  const models = [...new Set([model, "gemini-2.5-flash", "gemini-flash-latest", "gemini-2.0-flash"])];
+  const models: string[] = [...new Set([model, "gemini-3.8-flash", "gemini-flash-latest", "gemini-2.5-flash"])];
   let last = "gemini error";
   for (const m of models) {
     try {
@@ -64,7 +64,8 @@ ${list}
       if (!r.ok) {
         last = `${m}: ${r.status} ${d?.error?.message || ""}`.slice(0, 200);
         console.error("gemini", last);
-        if (r.status === 404 || (r.status === 400 && /model/i.test(last))) continue;
+        const sug = /use models\/([\w.\-]+)/.exec(d?.error?.message || ""); if (sug && !models.includes(sug[1])) models.splice(models.indexOf(m) + 1, 0, sug[1]);
+        if (r.status === 404 || sug || /model/i.test(last)) continue;
         return json({ error: last }, 502);
       }
       const parts = d?.candidates?.[0]?.content?.parts ?? [];

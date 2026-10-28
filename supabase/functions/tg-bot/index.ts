@@ -180,7 +180,7 @@ async function log(user: any, type: string, d: { item?: string | null; price?: n
 }
 
 // ---------- Gemini: пробуем несколько моделей, честно возвращаем ошибку ----------
-const MODELS = [...new Set([GEMINI_MODEL, "gemini-2.5-flash", "gemini-flash-latest", "gemini-2.0-flash"])];
+const MODELS: string[] = [...new Set([GEMINI_MODEL, "gemini-3.8-flash", "gemini-flash-latest", "gemini-2.5-flash"])];
 async function gemini(prompt: string, b64: string): Promise<any> {
   if (!GEMINI_KEY) throw new Error("GEMINI_API_KEY не задан в Secrets");
   let last = "gemini error";
@@ -196,7 +196,8 @@ async function gemini(prompt: string, b64: string): Promise<any> {
     if (!r.ok) {
       last = `${m}: ${r.status} ${d?.error?.message || ""}`.slice(0, 200);
       console.error("gemini", last);
-      if (r.status === 404 || r.status === 400 && /model/i.test(last)) continue; // нет такой модели — пробуем следующую
+      const sug = /use models\/([\w.\-]+)/.exec(d?.error?.message || ""); if (sug && !MODELS.includes(sug[1])) MODELS.splice(MODELS.indexOf(m) + 1, 0, sug[1]);
+      if (r.status === 404 || sug || /model/i.test(last)) continue; // модель недоступна — пробуем следующую
       throw new Error(last);
     }
     const parts = d?.candidates?.[0]?.content?.parts ?? [];
