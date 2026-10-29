@@ -13,6 +13,7 @@
 
 const APP_URL = "https://reckon-bub.github.io/cenobot/";
 const ITEMS_URL = APP_URL + "items.csv";
+const GUIDE_URL = APP_URL + "img/guide.mp4";
 
 const TOKEN = Deno.env.get("TELEGRAM_BOT_TOKEN") ?? "";
 const SECRET = Deno.env.get("TG_WEBHOOK_SECRET") ?? "";
@@ -364,6 +365,13 @@ async function handle(chat: number, user: any, msg: any): Promise<Response | voi
     const text: string = msg.text ?? "";
     if (text.startsWith("/start") || text.startsWith("/help")) {
       await log(user, text.startsWith("/start") ? "bot_start" : "bot_help");
+      // на /start — короткое видео-гайд (25 с), потом текст с кнопкой
+      if (text.startsWith("/start")) {
+        try {
+          await tg("sendVideo", { chat_id: chat, video: GUIDE_URL, supports_streaming: true, width: 1080, height: 1920,
+            caption: "🥥 Смотри за 20 секунд, как проверять цены" });
+        } catch (_) { /* если видео не ушло — просто текст */ }
+      }
       await send(chat, HELP);
       return new Response("ok");
     }
