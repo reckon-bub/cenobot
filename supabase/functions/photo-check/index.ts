@@ -64,41 +64,62 @@ async function gemini(prompt: string, b64: string): Promise<any> {
 
 // ---------- OpenAI (основной, если задан OPENAI_API_KEY) ----------
 const OPENAI_KEY = Deno.env.get("OPENAI_API_KEY") ?? "";
-const OAI_MODELS: string[] = [...new Set([Deno.env.get("OPENAI_MODEL") || "gpt-4.1-mini", "gpt-4o-mini", "gpt-5-mini"])];
+const OAI_MODELS: string[] = [...new Set([Deno.env.get("OPENAI_MODEL") || "gpt-6.1-terra", "gpt-5.6-terra", "gpt-4.1-mini", "gpt-4o-mini"])];
+let oaiDiscovered = false;
+// если ни одна модель из списка не подошла — спрашиваем у OpenAI, какие модели доступны, и берём быструю
+async function discoverModels(): Promise<string[]> {
+  if (oaiDiscovered) return []; oaiDiscovered = true;
+  try {
+    const r = await fetch("https://api.openai.com/v1/models", { headers: { Authorization: `Bearer ${OPENAI_KEY}` }, signal: AbortSignal.timeout(10_000) });
+    const d = await r.json();
+    const ids: string[] = (d?.data ?? []).map((m: any) => String(m.id))
+      .filter((id: string) => /^(gpt|o\d)/.test(id) && !/audio|realtime|tts|transcribe|search|image|embed|codex|instruct|preview/.test(id));
+    const rank = (id: string) => (/terra/.test(id) ? 0 : /mini/.test(id) ? 1 : /nano/.test(id) ? 2 : 3);
+    return ids.sort((a, b) => rank(a) - rank(b) || b.localeCompare(a)).slice(0, 4);
+  } catch { return []; }
+}
 async function openai(prompt: string, b64: string): Promise<any> {
   let last = "openai error";
-  for (const m of OAI_MODELS) {
-    const reasoning = /^(gpt-5|o\d)/.test(m);
-    const body: any = {
-      model: m,
-      messages: [{ role: "user", content: [
-        { type: "text", text: prompt },
-        { type: "image_url", image_url: { url: "data:image/jpeg;base64," + b64, detail: "high" } },
-      ] }],
-      response_format: { type: "json_object" },
-      max_completion_tokens: reasoning ? 2000 : 300,
-    };
-    if (reasoning) body.reasoning_effort = "minimal"; else body.temperature = 0.1;
-    let r: Response, d: any;
-    try {
-      r = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${OPENAI_KEY}` },
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(30_000),
-      });
-      d = await r.json().catch(() => ({}));
-    } catch (e) {
-      last = `${m}: не ответил вовремя (${String((e as Error)?.name ?? e)})`; console.error("openai", last); continue;
+  const deadline = Date.now() + 60_000;
+  for (let i = 0; i < OAI_MODELS.length && Date.now() < deadline; i++) {
+    const m = OAI_MODELS[i];
+    const reasoning = /^(gpt-[5-9]|o\d)/.test(m);
+    // первая попытка — с быстрыми настройками, вторая — без них (если модель их не принимает)
+    for (const tuned of [true, false]) {
+      const body: any = {
+        model: m,
+        messages: [{ role: "user", content: [
+          { type: "text", text: prompt },
+          { type: "image_url", image_url: { url: "data:image/jpeg;base64," + b64, detail: "high" } },
+        ] }],
+        response_format: { type: "json_object" },
+      };
+      if (tuned) { if (reasoning) body.reasoning_effort = "low"; else body.temperature = 0.1; }
+      let r: Response, d: any;
+      try {
+        r = await fetch("https://api.openai.com/v1/chat/completions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${OPENAI_KEY}` },
+          body: JSON.stringify(body),
+          signal: AbortSignal.timeout(Math.max(3000, Math.min(30_000, deadline - Date.now()))),
+        });
+        d = await r.json().catch(() => ({}));
+      } catch (e) {
+        last = `${m}: не ответил вовремя (${String((e as Error)?.name ?? e)})`; console.error("openai", last); break;
+      }
+      if (r.ok) {
+        const raw = String(d?.choices?.[0]?.message?.content ?? "").replace(/```json|```/g, "").trim();
+        try { return JSON.parse(raw.slice(raw.indexOf("{"), raw.lastIndexOf("}") + 1) || "{}"); } catch { return {}; }
+      }
+      const msg = String(d?.error?.message || ""), code = String(d?.error?.code || "");
+      last = `${m}: ${r.status} ${code} ${msg}`.slice(0, 220); console.error("openai", last);
+      if (tuned && r.status === 400 && /reasoning|temperature|unsupported/i.test(msg)) continue; // повтор без настроек
+      if (r.status === 404 || code === "model_not_found" || /model/i.test(msg) || r.status >= 500) {
+        if (i === OAI_MODELS.length - 1) for (const x of await discoverModels()) if (!OAI_MODELS.includes(x)) OAI_MODELS.push(x);
+        break; // следующая модель
+      }
+      throw new Error(last); // ключ, оплата (insufficient_quota), лимит — показываем причину
     }
-    if (r.ok) {
-      const raw = String(d?.choices?.[0]?.message?.content ?? "").replace(/```json|```/g, "").trim();
-      try { return JSON.parse(raw.slice(raw.indexOf("{"), raw.lastIndexOf("}") + 1) || "{}"); } catch { return {}; }
-    }
-    const msg = String(d?.error?.message || "");
-    last = `${m}: ${r.status} ${msg}`.slice(0, 200); console.error("openai", last);
-    if (r.status === 404 || r.status >= 500 || /model/i.test(msg)) continue; // нет модели — следующая
-    throw new Error(last); // ключ, оплата, лимит — показываем причину
   }
   throw new Error(last);
 }
